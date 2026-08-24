@@ -281,21 +281,35 @@ jobs:
           C:
           cd %userprofile%\TBuild\%REPO_NAME%\Telegram
 
+          :: Wipe previous CMake cache to prevent configuration mismatch errors
+          if exist "..\out\CMakeCache.txt" del /f /q "..\out\CMakeCache.txt"
+          if exist "..\out\CMakeFiles" rmdir /s /q "..\out\CMakeFiles"
+
           set "GENERATOR_ARG="
           if not "${{ matrix.generator }}"=="" set "GENERATOR_ARG=-G "${{ matrix.generator }}""
 
+          set "QT_ARG="
+          if not "${{ matrix.qt }}"=="" set "QT_ARG=${{ matrix.qt }}"
+
+          :: Run configuration step
           call configure.bat ^
           %GENERATOR_ARG% ^
           ${{ matrix.arch }} ^
-          ${{ matrix.qt }} ^
+          %QT_ARG% ^
           -D TDESKTOP_API_ID="${{ secrets.TELEGRAM_API_ID }}" ^
-          -D TDESKTOP_API_HASH="${{ secrets.TELEGRAM_API_HASH }}" ^
+          -D TDESKTOP_API_HASH="${{ secrets.TDESKTOP_API_HASH }}" ^
           -D CMAKE_CONFIGURATION_TYPES=Debug ^
           -D CMAKE_COMPILE_WARNING_AS_ERROR=ON ^
           -D CMAKE_MSVC_DEBUG_INFORMATION_FORMAT= ^
           -D DESKTOP_APP_DISABLE_AUTOUPDATE=OFF ^
           -D DESKTOP_APP_DISABLE_CRASH_REPORTS=OFF
 
+          if %ERRORLEVEL% NEQ 0 (
+            echo ::error::CMake configuration failed!
+            exit /b %ERRORLEVEL%
+          )
+
+          :: Build project
           cmake --build ..\out --config Debug --parallel
 
       - name: Move artifact
