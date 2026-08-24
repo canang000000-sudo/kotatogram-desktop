@@ -1,4 +1,4 @@
-name: Windows
+name: Windows-Custom-Build
 
 on:
   workflow_dispatch:
