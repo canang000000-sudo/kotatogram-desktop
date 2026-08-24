@@ -123,6 +123,7 @@ jobs:
         && github.event.pull_request.head.repo.full_name == github.event.pull_request.base.repo.full_name)
 
     runs-on: ${{ matrix.arch == 'arm64' && 'windows-11-arm' || 'windows-latest' }}
+    environment: "TD Build ENV"
 
     strategy:
       fail-fast: false
