@@ -80,6 +80,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
+        target: ${{ (github.event_name == 'workflow_dispatch' && inputs.target != 'all') && fromJSON(format('["{0}"]', inputs.target)) || fromJSON('["x64", "x86", "arm64", "x64_qt6", "x64_ninja", "x64_qt6_ninja", "x86_ninja", "arm64_ninja"]') }}
         include:
           - target: x64
             arch: x64
@@ -113,15 +114,6 @@ jobs:
             arch: arm64
             qt: qt6
             generator: "Ninja Multi-Config"
-        exclude:
-          - target: ${{ (github.event_name == 'workflow_dispatch' && inputs.target != 'all' && inputs.target != 'x64') && 'x64' || '' }}
-          - target: ${{ (github.event_name == 'workflow_dispatch' && inputs.target != 'all' && inputs.target != 'x86') && 'x86' || '' }}
-          - target: ${{ (github.event_name == 'workflow_dispatch' && inputs.target != 'all' && inputs.target != 'arm64') && 'arm64' || '' }}
-          - target: ${{ (github.event_name == 'workflow_dispatch' && inputs.target != 'all' && inputs.target != 'x64_qt6') && 'x64_qt6' || '' }}
-          - target: ${{ (github.event_name == 'workflow_dispatch' && inputs.target != 'all' && inputs.target != 'x64_ninja') && 'x64_ninja' || '' }}
-          - target: ${{ (github.event_name == 'workflow_dispatch' && inputs.target != 'all' && inputs.target != 'x64_qt6_ninja') && 'x64_qt6_ninja' || '' }}
-          - target: ${{ (github.event_name == 'workflow_dispatch' && inputs.target != 'all' && inputs.target != 'x86_ninja') && 'x86_ninja' || '' }}
-          - target: ${{ (github.event_name == 'workflow_dispatch' && inputs.target != 'all' && inputs.target != 'arm64_ninja') && 'arm64_ninja' || '' }}
 
     env:
       UPLOAD_ARTIFACT: ${{ github.event_name == 'workflow_dispatch' && inputs.upload_artifact || 'true' }}
