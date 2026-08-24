@@ -235,9 +235,18 @@ jobs:
         shell: bash
         run: find $LibrariesPath '(' '(' ! '(' -name '*.lib' -o -name '*.a' -o -name '*.exe' -o -name '*.h' -o -name '*.hpp' -o -name '*.inc' -o -name '*.cmake' -o -path '*/include/*' -o -path '*/objects-*' -o -path '*/cache_keys/*' -o -path '*/patches/*' ')' -type f ')' -o -empty ')' -delete
 
+      - name: Check Telegram API Secrets
+        shell: bash
+        run: |
+          if [ -z "${{ secrets.TELEGRAM_API_ID }}" ] || [ -z "${{ secrets.TELEGRAM_API_HASH }}" ]; then
+            echo "::error::Missing Telegram API credentials! Please set TELEGRAM_API_ID and TELEGRAM_API_HASH in Repository Secrets."
+            exit 1
+          fi
+
       - name: Kotatogram Desktop build
         if: env.ONLY_CACHE == 'false'
         run: |
+          @echo off
           C:
           cd %userprofile%\TBuild\%REPO_NAME%\Telegram
 
@@ -248,7 +257,8 @@ jobs:
           %GENERATOR_ARG% ^
           ${{ matrix.arch }} ^
           ${{ matrix.qt }} ^
-          -D TDESKTOP_API_TEST=ON ^
+          -D TDESKTOP_API_ID="${{ secrets.TELEGRAM_API_ID }}" ^
+          -D TDESKTOP_API_HASH="${{ secrets.TELEGRAM_API_HASH }}" ^
           -D CMAKE_CONFIGURATION_TYPES=Debug ^
           -D CMAKE_COMPILE_WARNING_AS_ERROR=ON ^
           -D CMAKE_MSVC_DEBUG_INFORMATION_FORMAT= ^
