@@ -1,20 +1,23 @@
-name: Windows-Custom-Build
+name: Windows Selectable Target
 
 on:
   workflow_dispatch:
     inputs:
       target:
-        description: "Build target"
+        description: "Build target (Select 'all' to run full suite)"
         required: true
         type: choice
-        default: x64
+        default: all
         options:
+          - all
           - x64
           - x86
           - arm64
           - x64_qt6
           - x64_ninja
           - x64_qt6_ninja
+          - x86_ninja
+          - arm64_ninja
       upload_artifact:
         description: "Upload the built executables"
         required: true
@@ -65,7 +68,7 @@ on:
 
 jobs:
   windows:
-    name: Windows ${{ matrix.arch }} ${{ matrix.qt }} ${{ matrix.generator }}
+    name: Windows ${{ matrix.target }}
     if: >
       !(github.event_name == 'push'
         && contains(github.event.head_commit.message, '[skip ci]'))
@@ -102,6 +105,23 @@ jobs:
             arch: x64
             qt: qt6
             generator: "Ninja Multi-Config"
+          - target: x86_ninja
+            arch: x64_x86
+            qt: ""
+            generator: "Ninja Multi-Config"
+          - target: arm64_ninja
+            arch: arm64
+            qt: qt6
+            generator: "Ninja Multi-Config"
+        exclude:
+          - target: ${{ (github.event_name == 'workflow_dispatch' && inputs.target != 'all' && inputs.target != 'x64') && 'x64' || '' }}
+          - target: ${{ (github.event_name == 'workflow_dispatch' && inputs.target != 'all' && inputs.target != 'x86') && 'x86' || '' }}
+          - target: ${{ (github.event_name == 'workflow_dispatch' && inputs.target != 'all' && inputs.target != 'arm64') && 'arm64' || '' }}
+          - target: ${{ (github.event_name == 'workflow_dispatch' && inputs.target != 'all' && inputs.target != 'x64_qt6') && 'x64_qt6' || '' }}
+          - target: ${{ (github.event_name == 'workflow_dispatch' && inputs.target != 'all' && inputs.target != 'x64_ninja') && 'x64_ninja' || '' }}
+          - target: ${{ (github.event_name == 'workflow_dispatch' && inputs.target != 'all' && inputs.target != 'x64_qt6_ninja') && 'x64_qt6_ninja' || '' }}
+          - target: ${{ (github.event_name == 'workflow_dispatch' && inputs.target != 'all' && inputs.target != 'x86_ninja') && 'x86_ninja' || '' }}
+          - target: ${{ (github.event_name == 'workflow_dispatch' && inputs.target != 'all' && inputs.target != 'arm64_ninja') && 'arm64_ninja' || '' }}
 
     env:
       UPLOAD_ARTIFACT: ${{ github.event_name == 'workflow_dispatch' && inputs.upload_artifact || 'true' }}
@@ -113,59 +133,6 @@ jobs:
         shell: cmd
 
     steps:
-      - name: Select target
-        shell: bash
-        run: |
-          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
-            TARGET="${{ inputs.target }}"
-          else
-            TARGET="x64"
-          fi
-
-          echo "Selected target: $TARGET"
-
-          case "$TARGET" in
-            x64)
-              ARCH="x64"
-              QT=""
-              GENERATOR=""
-              ;;
-            x86)
-              ARCH="x64_x86"
-              QT=""
-              GENERATOR=""
-              ;;
-            arm64)
-              ARCH="arm64"
-              QT="qt6"
-              GENERATOR=""
-              ;;
-            x64_qt6)
-              ARCH="x64"
-              QT="qt6"
-              GENERATOR=""
-              ;;
-            x64_ninja)
-              ARCH="x64"
-              QT=""
-              GENERATOR="Ninja Multi-Config"
-              ;;
-            x64_qt6_ninja)
-              ARCH="x64"
-              QT="qt6"
-              GENERATOR="Ninja Multi-Config"
-              ;;
-            *)
-              echo "Unknown target: $TARGET"
-              exit 1
-              ;;
-          esac
-
-          echo "BUILD_TARGET=$TARGET" >> "$GITHUB_ENV"
-          echo "BUILD_ARCH=$ARCH" >> "$GITHUB_ENV"
-          echo "BUILD_QT=$QT" >> "$GITHUB_ENV"
-          echo "BUILD_GENERATOR=$GENERATOR" >> "$GITHUB_ENV"
-
       - name: Prepare directories
         run: |
           mkdir %userprofile%\TBuild\Libraries
@@ -187,18 +154,18 @@ jobs:
         shell: bash
         run: |
           DOCPATH=$TBUILD/$REPO_NAME/docs/building-win.md
-          SDK="$(grep "SDK version" "$DOCPATH" | sed -r 's/.*\*\*(.*)\*\* SDK version.*/\1/')"
-          echo "SDK=$SDK" >> "$GITHUB_ENV"
+          SDK="$(grep "SDK version" $DOCPATH | sed -r 's/.*\*\*(.*)\*\* SDK version.*/\1/')"
+          echo "SDK=$SDK" >> $GITHUB_ENV
 
           sed -i '/CMAKE_${lang}_FLAGS_DEBUG_INIT/s/${_Zi}//' "$PROGRAMFILES"/CMake/share/cmake*/Modules/Platform/Windows-MSVC.cmake
 
-          echo "$(sha256sum "$TBUILD/$REPO_NAME/$PREPARE_PATH" | awk '{ print $1 }')" >> CACHE_KEY.txt
+          echo "$(sha256sum $TBUILD/$REPO_NAME/$PREPARE_PATH | awk '{ print $1 }')" >> CACHE_KEY.txt
           echo "$SDK" >> CACHE_KEY.txt
-          echo "$BUILD_TARGET" >> CACHE_KEY.txt
           echo "CACHE_KEY=$(sha256sum CACHE_KEY.txt | awk '{ print $1 }')" >> $GITHUB_ENV
 
-          git config --global user.email "github-actions@example.com"
-          git config --global user.name "github-actions"
+          echo "Configure git for cherry-picks."
+          git config --global user.email "you@example.com"
+          git config --global user.name "Sample"
 
       - name: Install VS Build Tools
         if: matrix.arch == 'arm64'
@@ -215,17 +182,8 @@ jobs:
 
       - uses: Eden-CI/msvc-dev-cmd@master
         name: Native Tools Command Prompt
-        if: matrix.arch != 'arm64'
         with:
           arch: ${{ matrix.arch }}
-          sdk: ${{ env.SDK }}
-          toolset: 14.44
-
-      - uses: Eden-CI/msvc-dev-cmd@master
-        name: Native Tools Command Prompt ARM64
-        if: matrix.arch == 'arm64'
-        with:
-          arch: arm64
           sdk: ${{ env.SDK }}
 
       - name: NuGet sources
@@ -239,8 +197,7 @@ jobs:
         with:
           path: ${{ env.TBUILD }}\ThirdParty
           key: ${{ runner.OS }}-${{ runner.arch }}-third-party-${{ env.CACHE_KEY }}
-          restore-keys: |
-            ${{ runner.OS }}-${{ runner.arch }}-third-party-
+          restore-keys: ${{ runner.OS }}-${{ runner.arch }}-third-party-
 
       - name: Libraries cache
         id: cache-libs
@@ -253,8 +210,7 @@ jobs:
             ${{ env.LibrariesPath }}\cache_keys\*
             !${{ env.LibrariesPath }}\cache_keys\[qQ]t[_-]*
           key: ${{ runner.OS }}-${{ matrix.arch }}-libs-${{ env.CACHE_KEY }}
-          restore-keys: |
-            ${{ runner.OS }}-${{ matrix.arch }}-libs-
+          restore-keys: ${{ runner.OS }}-${{ matrix.arch }}-libs-
 
       - name: Qt cache
         id: cache-qt
@@ -263,30 +219,16 @@ jobs:
           path: |
             ${{ env.LibrariesPath }}\[qQ]t[_-]*
             ${{ env.LibrariesPath }}\cache_keys\[qQ]t[_-]*
-          key: ${{ runner.OS }}-${{ matrix.arch }}-${{ env.BUILD_QT || 'qt' }}-${{ env.CACHE_KEY }}
-          restore-keys: |
-            ${{ runner.OS }}-${{ matrix.arch }}-${{ env.BUILD_QT || 'qt' }}-
+          key: ${{ runner.OS }}-${{ matrix.arch }}-${{ matrix.qt || 'qt' }}-${{ env.CACHE_KEY }}
+          restore-keys: ${{ runner.OS }}-${{ matrix.arch }}-${{ matrix.qt || 'qt' }}-
 
       - name: Libraries
         run: |
-          %TBUILD%\%REPO_NAME%\Telegram\build\prepare\win.bat skip-release silent %BUILD_QT%
+          %TBUILD%\%REPO_NAME%\Telegram\build\prepare\win.bat skip-release silent ${{ matrix.qt }}
 
-      - name: Free up some disk space
+      - name: Free up disk space
         shell: bash
-        run: |
-          find "$LibrariesPath" '(' '(' ! '(' \
-            -name '*.lib' -o \
-            -name '*.a' -o \
-            -name '*.exe' -o \
-            -name '*.h' -o \
-            -name '*.hpp' -o \
-            -name '*.inc' -o \
-            -name '*.cmake' -o \
-            -path '*/include/*' -o \
-            -path '*/objects-*' -o \
-            -path '*/cache_keys/*' -o \
-            -path '*/patches/*' \
-          ')' -type f ')' -o -empty ')' -delete
+        run: find $LibrariesPath '(' '(' ! '(' -name '*.lib' -o -name '*.a' -o -name '*.exe' -o -name '*.h' -o -name '*.hpp' -o -name '*.inc' -o -name '*.cmake' -o -path '*/include/*' -o -path '*/objects-*' -o -path '*/cache_keys/*' -o -path '*/patches/*' ')' -type f ')' -o -empty ')' -delete
 
       - name: Kotatogram Desktop build
         if: env.ONLY_CACHE == 'false'
@@ -295,32 +237,32 @@ jobs:
           cd %userprofile%\TBuild\%REPO_NAME%\Telegram
 
           set "GENERATOR_ARG="
-          if not "%BUILD_GENERATOR%"=="" set "GENERATOR_ARG=-G "%BUILD_GENERATOR%""
+          if not "${{ matrix.generator }}"=="" set "GENERATOR_ARG=-G "${{ matrix.generator }}""
 
           call configure.bat ^
-            %GENERATOR_ARG% ^
-            %BUILD_ARCH% ^
-            %BUILD_QT% ^
-            -D TDESKTOP_API_TEST=ON ^
-            -D CMAKE_CONFIGURATION_TYPES=Debug ^
-            -D CMAKE_COMPILE_WARNING_AS_ERROR=ON ^
-            -D CMAKE_MSVC_DEBUG_INFORMATION_FORMAT= ^
-            -D DESKTOP_APP_DISABLE_AUTOUPDATE=OFF ^
-            -D DESKTOP_APP_DISABLE_CRASH_REPORTS=OFF
+          %GENERATOR_ARG% ^
+          ${{ matrix.arch }} ^
+          ${{ matrix.qt }} ^
+          -D TDESKTOP_API_TEST=ON ^
+          -D CMAKE_CONFIGURATION_TYPES=Debug ^
+          -D CMAKE_COMPILE_WARNING_AS_ERROR=ON ^
+          -D CMAKE_MSVC_DEBUG_INFORMATION_FORMAT= ^
+          -D DESKTOP_APP_DISABLE_AUTOUPDATE=OFF ^
+          -D DESKTOP_APP_DISABLE_CRASH_REPORTS=OFF
 
           cmake --build ..\out --config Debug --parallel
 
       - name: Move artifact
-        if: env.UPLOAD_ARTIFACT == 'true'
+        if: (env.UPLOAD_ARTIFACT == 'true') || (github.ref == 'refs/heads/nightly')
         run: |
-          set "OUT=%TBUILD%\%REPO_NAME%\out\Debug"
+          set OUT=%TBUILD%\%REPO_NAME%\out\Debug
           mkdir artifact
-          copy "%OUT%\Kotatogram.exe" artifact\
+          if exist "%OUT%\Kotatogram.exe" copy "%OUT%\Kotatogram.exe" artifact\
           if exist "%OUT%\Updater.exe" copy "%OUT%\Updater.exe" artifact\
 
       - name: Upload artifact
-        if: env.UPLOAD_ARTIFACT == 'true'
+        if: (env.UPLOAD_ARTIFACT == 'true') || (github.ref == 'refs/heads/nightly')
         uses: actions/upload-artifact@v7
         with:
-          name: Kotatogram-${{ env.BUILD_TARGET }}
+          name: Kotatogram-${{ matrix.target }}
           path: artifact\
