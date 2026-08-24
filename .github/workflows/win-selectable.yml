@@ -7,9 +7,8 @@ on:
         description: "Build target (Select 'all' to run full suite)"
         required: true
         type: choice
-        default: all
+        default: x64
         options:
-          - all
           - x64
           - x86
           - arm64
@@ -18,6 +17,7 @@ on:
           - x64_qt6_ninja
           - x86_ninja
           - arm64_ninja
+          - all
       upload_artifact:
         description: "Upload the built executables"
         required: true
@@ -67,8 +67,36 @@ on:
       - 'Telegram/Telegram.plist'
 
 jobs:
+  matrix-prep:
+    name: Prepare Build Matrix
+    runs-on: ubuntu-latest
+    outputs:
+      matrix: ${{ steps.set-matrix.outputs.matrix }}
+    steps:
+      - name: Generate Matrix JSON
+        id: set-matrix
+        shell: bash
+        run: |
+          # Full suite definition
+          ALL_TARGETS='["x64", "x86", "arm64", "x64_qt6", "x64_ninja", "x64_qt6_ninja", "x86_ninja", "arm64_ninja"]'
+
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            SELECTED="${{ inputs.target }}"
+            if [ "$SELECTED" = "all" ]; then
+              TARGETS="$ALL_TARGETS"
+            else
+              TARGETS="[\"$SELECTED\"]"
+            fi
+          else
+            TARGETS="$ALL_TARGETS"
+          fi
+
+          echo "Selected targets: $TARGETS"
+          echo "matrix={\"target\": $TARGETS}" >> "$GITHUB_OUTPUT"
+
   windows:
     name: Windows ${{ matrix.target }}
+    needs: matrix-prep
     if: >
       !(github.event_name == 'push'
         && contains(github.event.head_commit.message, '[skip ci]'))
@@ -80,7 +108,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        target: ${{ (github.event_name == 'workflow_dispatch' && inputs.target != 'all') && fromJSON(format('["{0}"]', inputs.target)) || fromJSON('["x64", "x86", "arm64", "x64_qt6", "x64_ninja", "x64_qt6_ninja", "x86_ninja", "arm64_ninja"]') }}
+        target: ${{ fromJSON(needs.matrix-prep.outputs.matrix).target }}
         include:
           - target: x64
             arch: x64
