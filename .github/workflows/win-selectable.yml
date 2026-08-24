@@ -109,7 +109,6 @@ jobs:
             TARGETS="$ALL_TARGETS"
           fi
 
-          # Output valid JSON structure for matrix include
           MATRIX=$(jq -n -c --argjson inc "$TARGETS" '{include: $inc}')
           echo "matrix=$MATRIX" >> "$GITHUB_OUTPUT"
 
@@ -197,17 +196,18 @@ jobs:
           nuget sources Disable -Name "Microsoft Visual Studio Offline Packages"
           nuget sources Add -Source https://api.nuget.org/v3/index.json & exit 0
 
-      - name: ThirdParty cache
-        id: cache-third-party
-        uses: actions/cache@v5
+      # RESTORE CACHES (WILL NOT WRITE ON WORKFLOW FINISH)
+      - name: Restore ThirdParty cache
+        id: restore-third-party
+        uses: actions/cache/restore@v5
         with:
           path: ${{ env.TBUILD }}\ThirdParty
           key: ${{ runner.OS }}-${{ runner.arch }}-third-party-${{ env.CACHE_KEY }}
           restore-keys: ${{ runner.OS }}-${{ runner.arch }}-third-party-
 
-      - name: Libraries cache
-        id: cache-libs
-        uses: actions/cache@v5
+      - name: Restore Libraries cache
+        id: restore-libs
+        uses: actions/cache/restore@v5
         with:
           path: |
             ${{ env.LibrariesPath }}\*
@@ -218,9 +218,9 @@ jobs:
           key: ${{ runner.OS }}-${{ matrix.arch }}-libs-${{ env.CACHE_KEY }}
           restore-keys: ${{ runner.OS }}-${{ matrix.arch }}-libs-
 
-      - name: Qt cache
-        id: cache-qt
-        uses: actions/cache@v5
+      - name: Restore Qt cache
+        id: restore-qt
+        uses: actions/cache/restore@v5
         with:
           path: |
             ${{ env.LibrariesPath }}\[qQ]t[_-]*
@@ -228,6 +228,7 @@ jobs:
           key: ${{ runner.OS }}-${{ matrix.arch }}-${{ matrix.qt || 'qt' }}-${{ env.CACHE_KEY }}
           restore-keys: ${{ runner.OS }}-${{ matrix.arch }}-${{ matrix.qt || 'qt' }}-
 
+      # HEAVY BUILD STEP
       - name: Libraries
         run: |
           %TBUILD%\%REPO_NAME%\Telegram\build\prepare\win.bat skip-release silent ${{ matrix.qt }}
@@ -236,11 +237,40 @@ jobs:
         shell: bash
         run: find $LibrariesPath '(' '(' ! '(' -name '*.lib' -o -name '*.a' -o -name '*.exe' -o -name '*.h' -o -name '*.hpp' -o -name '*.inc' -o -name '*.cmake' -o -path '*/include/*' -o -path '*/objects-*' -o -path '*/cache_keys/*' -o -path '*/patches/*' ')' -type f ')' -o -empty ')' -delete
 
+      # SAVE CACHES IMMEDIATELY BEFORE ATTEMPTING BUILD
+      - name: Save ThirdParty cache (Immediate)
+        if: steps.restore-third-party.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v5
+        with:
+          path: ${{ env.TBUILD }}\ThirdParty
+          key: ${{ runner.OS }}-${{ runner.arch }}-third-party-${{ env.CACHE_KEY }}
+
+      - name: Save Libraries cache (Immediate)
+        if: steps.restore-libs.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v5
+        with:
+          path: |
+            ${{ env.LibrariesPath }}\*
+            !${{ env.LibrariesPath }}\cache_keys
+            !${{ env.LibrariesPath }}\[qQ]t[_-]*
+            ${{ env.LibrariesPath }}\cache_keys\*
+            !${{ env.LibrariesPath }}\cache_keys\[qQ]t[_-]*
+          key: ${{ runner.OS }}-${{ matrix.arch }}-libs-${{ env.CACHE_KEY }}
+
+      - name: Save Qt cache (Immediate)
+        if: steps.restore-qt.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v5
+        with:
+          path: |
+            ${{ env.LibrariesPath }}\[qQ]t[_-]*
+            ${{ env.LibrariesPath }}\cache_keys\[qQ]t[_-]*
+          key: ${{ runner.OS }}-${{ matrix.arch }}-${{ matrix.qt || 'qt' }}-${{ env.CACHE_KEY }}
+
       - name: Check Telegram API Secrets
         shell: bash
         run: |
           if [ -z "${{ secrets.TELEGRAM_API_ID }}" ] || [ -z "${{ secrets.TELEGRAM_API_HASH }}" ]; then
-            echo "::error::Missing Telegram API credentials! Please set TELEGRAM_API_ID and TELEGRAM_API_HASH in Repository Secrets."
+            echo "::error::Missing Telegram API credentials! Please set TELEGRAM_API_ID and TELEGRAM_API_HASH in Environment Secrets."
             exit 1
           fi
 
@@ -278,7 +308,7 @@ jobs:
 
       - name: Upload artifact
         if: (env.UPLOAD_ARTIFACT == 'true') || (github.ref == 'refs/heads/nightly')
-        uses: actions/upload-artifact@v7
+        uses: actions/upload-artifact@v4
         with:
           name: Kotatogram-${{ matrix.target }}
           path: artifact\
