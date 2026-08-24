@@ -1,0 +1,326 @@
+name: Windows
+
+on:
+  workflow_dispatch:
+    inputs:
+      target:
+        description: "Build target"
+        required: true
+        type: choice
+        default: x64
+        options:
+          - x64
+          - x86
+          - arm64
+          - x64_qt6
+          - x64_ninja
+          - x64_qt6_ninja
+      upload_artifact:
+        description: "Upload the built executables"
+        required: true
+        type: boolean
+        default: true
+
+  push:
+    paths-ignore:
+      - 'docs/**'
+      - '**.md'
+      - '!docs/building-win*.md'
+      - 'kotatogram_changes.txt'
+      - 'changelog.txt'
+      - 'LEGAL'
+      - 'LICENSE'
+      - '.github/**'
+      - '!.github/workflows/win.yml'
+      - 'lib/xdg/**'
+      - 'snap/**'
+      - 'Telegram/build/docker/**'
+      - 'Telegram/Resources/uwp/**'
+      - 'Telegram/SourceFiles/platform/linux/**'
+      - 'Telegram/SourceFiles/platform/mac/**'
+      - 'Telegram/Telegram/**'
+      - 'Telegram/configure.sh'
+      - 'Telegram/Telegram.plist'
+
+  pull_request:
+    paths-ignore:
+      - 'docs/**'
+      - '**.md'
+      - '!docs/building-win*.md'
+      - 'kotatogram_changes.txt'
+      - 'changelog.txt'
+      - 'LEGAL'
+      - 'LICENSE'
+      - '.github/**'
+      - '!.github/workflows/win.yml'
+      - 'lib/xdg/**'
+      - 'snap/**'
+      - 'Telegram/build/docker/**'
+      - 'Telegram/Resources/uwp/**'
+      - 'Telegram/SourceFiles/platform/linux/**'
+      - 'Telegram/SourceFiles/platform/mac/**'
+      - 'Telegram/Telegram/**'
+      - 'Telegram/configure.sh'
+      - 'Telegram/Telegram.plist'
+
+jobs:
+  windows:
+    name: Windows ${{ matrix.arch }} ${{ matrix.qt }} ${{ matrix.generator }}
+    if: >
+      !(github.event_name == 'push'
+        && contains(github.event.head_commit.message, '[skip ci]'))
+      && !(github.event_name == 'pull_request'
+        && github.event.pull_request.head.repo.full_name == github.event.pull_request.base.repo.full_name)
+
+    runs-on: ${{ matrix.arch == 'arm64' && 'windows-11-arm' || 'windows-latest' }}
+
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - target: x64
+            arch: x64
+            qt: ""
+            generator: ""
+          - target: x86
+            arch: x64_x86
+            qt: ""
+            generator: ""
+          - target: arm64
+            arch: arm64
+            qt: qt6
+            generator: ""
+          - target: x64_qt6
+            arch: x64
+            qt: qt6
+            generator: ""
+          - target: x64_ninja
+            arch: x64
+            qt: ""
+            generator: "Ninja Multi-Config"
+          - target: x64_qt6_ninja
+            arch: x64
+            qt: qt6
+            generator: "Ninja Multi-Config"
+
+    env:
+      UPLOAD_ARTIFACT: ${{ github.event_name == 'workflow_dispatch' && inputs.upload_artifact || 'true' }}
+      ONLY_CACHE: "false"
+      PREPARE_PATH: "Telegram/build/prepare/prepare.py"
+
+    defaults:
+      run:
+        shell: cmd
+
+    steps:
+      - name: Select target
+        shell: bash
+        run: |
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            TARGET="${{ inputs.target }}"
+          else
+            TARGET="x64"
+          fi
+
+          echo "Selected target: $TARGET"
+
+          case "$TARGET" in
+            x64)
+              ARCH="x64"
+              QT=""
+              GENERATOR=""
+              ;;
+            x86)
+              ARCH="x64_x86"
+              QT=""
+              GENERATOR=""
+              ;;
+            arm64)
+              ARCH="arm64"
+              QT="qt6"
+              GENERATOR=""
+              ;;
+            x64_qt6)
+              ARCH="x64"
+              QT="qt6"
+              GENERATOR=""
+              ;;
+            x64_ninja)
+              ARCH="x64"
+              QT=""
+              GENERATOR="Ninja Multi-Config"
+              ;;
+            x64_qt6_ninja)
+              ARCH="x64"
+              QT="qt6"
+              GENERATOR="Ninja Multi-Config"
+              ;;
+            *)
+              echo "Unknown target: $TARGET"
+              exit 1
+              ;;
+          esac
+
+          echo "BUILD_TARGET=$TARGET" >> "$GITHUB_ENV"
+          echo "BUILD_ARCH=$ARCH" >> "$GITHUB_ENV"
+          echo "BUILD_QT=$QT" >> "$GITHUB_ENV"
+          echo "BUILD_GENERATOR=$GENERATOR" >> "$GITHUB_ENV"
+
+      - name: Prepare directories
+        run: |
+          mkdir %userprofile%\TBuild\Libraries
+          mklink /d %GITHUB_WORKSPACE%\TBuild %userprofile%\TBuild
+          echo TBUILD=%GITHUB_WORKSPACE%\TBuild>>%GITHUB_ENV%
+          echo LibrariesPath=%GITHUB_WORKSPACE%\TBuild\Libraries${{ matrix.arch == 'x64' && '\win64' || '' }}>>%GITHUB_ENV%
+
+      - name: Get repository name
+        shell: bash
+        run: echo "REPO_NAME=${GITHUB_REPOSITORY##*/}" >> $GITHUB_ENV
+
+      - name: Clone
+        uses: actions/checkout@v6
+        with:
+          submodules: recursive
+          path: ${{ env.TBUILD }}\${{ env.REPO_NAME }}
+
+      - name: First set up
+        shell: bash
+        run: |
+          DOCPATH=$TBUILD/$REPO_NAME/docs/building-win.md
+          SDK="$(grep "SDK version" "$DOCPATH" | sed -r 's/.*\*\*(.*)\*\* SDK version.*/\1/')"
+          echo "SDK=$SDK" >> "$GITHUB_ENV"
+
+          sed -i '/CMAKE_${lang}_FLAGS_DEBUG_INIT/s/${_Zi}//' "$PROGRAMFILES"/CMake/share/cmake*/Modules/Platform/Windows-MSVC.cmake
+
+          echo "$(sha256sum "$TBUILD/$REPO_NAME/$PREPARE_PATH" | awk '{ print $1 }')" >> CACHE_KEY.txt
+          echo "$SDK" >> CACHE_KEY.txt
+          echo "$BUILD_TARGET" >> CACHE_KEY.txt
+          echo "CACHE_KEY=$(sha256sum CACHE_KEY.txt | awk '{ print $1 }')" >> $GITHUB_ENV
+
+          git config --global user.email "github-actions@example.com"
+          git config --global user.name "github-actions"
+
+      - name: Install VS Build Tools
+        if: matrix.arch == 'arm64'
+        shell: pwsh
+        run: |
+          Invoke-WebRequest -Uri https://aka.ms/vs/18/stable/vs_buildtools.exe -OutFile vs_buildtools.exe
+          $p = Start-Process -FilePath .\vs_buildtools.exe -Wait -PassThru -ArgumentList `
+            '--quiet','--wait','--norestart','--nocache', `
+            '--add','Microsoft.VisualStudio.Workload.VCTools', `
+            '--add','Microsoft.VisualStudio.Component.VC.Tools.ARM64', `
+            '--add','Microsoft.VisualStudio.Component.VC.ATL.ARM64'
+          Remove-Item vs_buildtools.exe -Force
+          if ($p.ExitCode -ne 0 -and $p.ExitCode -ne 3010) { exit $p.ExitCode }
+
+      - uses: Eden-CI/msvc-dev-cmd@master
+        name: Native Tools Command Prompt
+        if: matrix.arch != 'arm64'
+        with:
+          arch: ${{ matrix.arch }}
+          sdk: ${{ env.SDK }}
+          toolset: 14.44
+
+      - uses: Eden-CI/msvc-dev-cmd@master
+        name: Native Tools Command Prompt ARM64
+        if: matrix.arch == 'arm64'
+        with:
+          arch: arm64
+          sdk: ${{ env.SDK }}
+
+      - name: NuGet sources
+        run: |
+          nuget sources Disable -Name "Microsoft Visual Studio Offline Packages"
+          nuget sources Add -Source https://api.nuget.org/v3/index.json & exit 0
+
+      - name: ThirdParty cache
+        id: cache-third-party
+        uses: actions/cache@v5
+        with:
+          path: ${{ env.TBUILD }}\ThirdParty
+          key: ${{ runner.OS }}-${{ runner.arch }}-third-party-${{ env.CACHE_KEY }}
+          restore-keys: |
+            ${{ runner.OS }}-${{ runner.arch }}-third-party-
+
+      - name: Libraries cache
+        id: cache-libs
+        uses: actions/cache@v5
+        with:
+          path: |
+            ${{ env.LibrariesPath }}\*
+            !${{ env.LibrariesPath }}\cache_keys
+            !${{ env.LibrariesPath }}\[qQ]t[_-]*
+            ${{ env.LibrariesPath }}\cache_keys\*
+            !${{ env.LibrariesPath }}\cache_keys\[qQ]t[_-]*
+          key: ${{ runner.OS }}-${{ matrix.arch }}-libs-${{ env.CACHE_KEY }}
+          restore-keys: |
+            ${{ runner.OS }}-${{ matrix.arch }}-libs-
+
+      - name: Qt cache
+        id: cache-qt
+        uses: actions/cache@v5
+        with:
+          path: |
+            ${{ env.LibrariesPath }}\[qQ]t[_-]*
+            ${{ env.LibrariesPath }}\cache_keys\[qQ]t[_-]*
+          key: ${{ runner.OS }}-${{ matrix.arch }}-${{ env.BUILD_QT || 'qt' }}-${{ env.CACHE_KEY }}
+          restore-keys: |
+            ${{ runner.OS }}-${{ matrix.arch }}-${{ env.BUILD_QT || 'qt' }}-
+
+      - name: Libraries
+        run: |
+          %TBUILD%\%REPO_NAME%\Telegram\build\prepare\win.bat skip-release silent %BUILD_QT%
+
+      - name: Free up some disk space
+        shell: bash
+        run: |
+          find "$LibrariesPath" '(' '(' ! '(' \
+            -name '*.lib' -o \
+            -name '*.a' -o \
+            -name '*.exe' -o \
+            -name '*.h' -o \
+            -name '*.hpp' -o \
+            -name '*.inc' -o \
+            -name '*.cmake' -o \
+            -path '*/include/*' -o \
+            -path '*/objects-*' -o \
+            -path '*/cache_keys/*' -o \
+            -path '*/patches/*' \
+          ')' -type f ')' -o -empty ')' -delete
+
+      - name: Kotatogram Desktop build
+        if: env.ONLY_CACHE == 'false'
+        run: |
+          C:
+          cd %userprofile%\TBuild\%REPO_NAME%\Telegram
+
+          set "GENERATOR_ARG="
+          if not "%BUILD_GENERATOR%"=="" set "GENERATOR_ARG=-G "%BUILD_GENERATOR%""
+
+          call configure.bat ^
+            %GENERATOR_ARG% ^
+            %BUILD_ARCH% ^
+            %BUILD_QT% ^
+            -D TDESKTOP_API_TEST=ON ^
+            -D CMAKE_CONFIGURATION_TYPES=Debug ^
+            -D CMAKE_COMPILE_WARNING_AS_ERROR=ON ^
+            -D CMAKE_MSVC_DEBUG_INFORMATION_FORMAT= ^
+            -D DESKTOP_APP_DISABLE_AUTOUPDATE=OFF ^
+            -D DESKTOP_APP_DISABLE_CRASH_REPORTS=OFF
+
+          cmake --build ..\out --config Debug --parallel
+
+      - name: Move artifact
+        if: env.UPLOAD_ARTIFACT == 'true'
+        run: |
+          set "OUT=%TBUILD%\%REPO_NAME%\out\Debug"
+          mkdir artifact
+          copy "%OUT%\Kotatogram.exe" artifact\
+          if exist "%OUT%\Updater.exe" copy "%OUT%\Updater.exe" artifact\
+
+      - name: Upload artifact
+        if: env.UPLOAD_ARTIFACT == 'true'
+        uses: actions/upload-artifact@v7
+        with:
+          name: Kotatogram-${{ env.BUILD_TARGET }}
+          path: artifact\
