@@ -4,7 +4,7 @@ on:
   workflow_dispatch:
     inputs:
       target:
-        description: "Build target (Select 'all' to run full suite)"
+        description: "Build target"
         required: true
         type: choice
         default: x64
@@ -77,22 +77,41 @@ jobs:
         id: set-matrix
         shell: bash
         run: |
-          # Full suite definition
-          ALL_TARGETS='["x64", "x86", "arm64", "x64_qt6", "x64_ninja", "x64_qt6_ninja", "x86_ninja", "arm64_ninja"]'
+          ALL_TARGETS='[
+            {"target":"x64","arch":"x64","qt":"","generator":""},
+            {"target":"x86","arch":"x64_x86","qt":"","generator":""},
+            {"target":"arm64","arch":"arm64","qt":"qt6","generator":""},
+            {"target":"x64_qt6","arch":"x64","qt":"qt6","generator":""},
+            {"target":"x64_ninja","arch":"x64","qt":"","generator":"Ninja Multi-Config"},
+            {"target":"x64_qt6_ninja","arch":"x64","qt":"qt6","generator":"Ninja Multi-Config"},
+            {"target":"x86_ninja","arch":"x64_x86","qt":"","generator":"Ninja Multi-Config"},
+            {"target":"arm64_ninja","arch":"arm64","qt":"qt6","generator":"Ninja Multi-Config"}
+          ]'
 
           if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
             SELECTED="${{ inputs.target }}"
             if [ "$SELECTED" = "all" ]; then
               TARGETS="$ALL_TARGETS"
             else
-              TARGETS="[\"$SELECTED\"]"
+              case "$SELECTED" in
+                x64)           TARGETS='[{"target":"x64","arch":"x64","qt":"","generator":""}]' ;;
+                x86)           TARGETS='[{"target":"x86","arch":"x64_x86","qt":"","generator":""}]' ;;
+                arm64)         TARGETS='[{"target":"arm64","arch":"arm64","qt":"qt6","generator":""}]' ;;
+                x64_qt6)       TARGETS='[{"target":"x64_qt6","arch":"x64","qt":"qt6","generator":""}]' ;;
+                x64_ninja)     TARGETS='[{"target":"x64_ninja","arch":"x64","qt":"","generator":"Ninja Multi-Config"}]' ;;
+                x64_qt6_ninja) TARGETS='[{"target":"x64_qt6_ninja","arch":"x64","qt":"qt6","generator":"Ninja Multi-Config"}]' ;;
+                x86_ninja)     TARGETS='[{"target":"x86_ninja","arch":"x64_x86","qt":"","generator":"Ninja Multi-Config"}]' ;;
+                arm64_ninja)   TARGETS='[{"target":"arm64_ninja","arch":"arm64","qt":"qt6","generator":"Ninja Multi-Config"}]' ;;
+                *)             echo "Unknown target: $SELECTED"; exit 1 ;;
+              esac
             fi
           else
             TARGETS="$ALL_TARGETS"
           fi
 
-          echo "Selected targets: $TARGETS"
-          echo "matrix={\"target\": $TARGETS}" >> "$GITHUB_OUTPUT"
+          # Output valid JSON structure for matrix include
+          MATRIX=$(jq -n -c --argjson inc "$TARGETS" '{include: $inc}')
+          echo "matrix=$MATRIX" >> "$GITHUB_OUTPUT"
 
   windows:
     name: Windows ${{ matrix.target }}
@@ -107,41 +126,7 @@ jobs:
 
     strategy:
       fail-fast: false
-      matrix:
-        target: ${{ fromJSON(needs.matrix-prep.outputs.matrix).target }}
-        include:
-          - target: x64
-            arch: x64
-            qt: ""
-            generator: ""
-          - target: x86
-            arch: x64_x86
-            qt: ""
-            generator: ""
-          - target: arm64
-            arch: arm64
-            qt: qt6
-            generator: ""
-          - target: x64_qt6
-            arch: x64
-            qt: qt6
-            generator: ""
-          - target: x64_ninja
-            arch: x64
-            qt: ""
-            generator: "Ninja Multi-Config"
-          - target: x64_qt6_ninja
-            arch: x64
-            qt: qt6
-            generator: "Ninja Multi-Config"
-          - target: x86_ninja
-            arch: x64_x86
-            qt: ""
-            generator: "Ninja Multi-Config"
-          - target: arm64_ninja
-            arch: arm64
-            qt: qt6
-            generator: "Ninja Multi-Config"
+      matrix: ${{ fromJSON(needs.matrix-prep.outputs.matrix) }}
 
     env:
       UPLOAD_ARTIFACT: ${{ github.event_name == 'workflow_dispatch' && inputs.upload_artifact || 'true' }}
