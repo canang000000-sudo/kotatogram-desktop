@@ -291,7 +291,7 @@ jobs:
           set "QT_ARG="
           if not "${{ matrix.qt }}"=="" set "QT_ARG=${{ matrix.qt }}"
 
-          :: Run configuration step without turning policy warnings into fatal errors
+          :: Run configuration step with policy error overrides
           call configure.bat ^
           %GENERATOR_ARG% ^
           ${{ matrix.arch }} ^
@@ -300,8 +300,7 @@ jobs:
           -D TDESKTOP_API_HASH="${{ secrets.TDESKTOP_API_HASH }}" ^
           -D CMAKE_CONFIGURATION_TYPES=Debug ^
           -D CMAKE_COMPILE_WARNING_AS_ERROR=OFF ^
-          -D CMAKE_WARN_DEPRECATED=OFF ^
-          -D CMAKE_ERROR_DEPRECATED=OFF ^
+          -D CMAKE_POLICY_DEFAULT_CMP0218=OLD ^
           -D DESKTOP_APP_DISABLE_AUTOUPDATE=OFF ^
           -D DESKTOP_APP_DISABLE_CRASH_REPORTS=OFF
 
