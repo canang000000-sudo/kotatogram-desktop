@@ -196,12 +196,14 @@ jobs:
           nuget sources Disable -Name "Microsoft Visual Studio Offline Packages"
           nuget sources Add -Source https://api.nuget.org/v3/index.json & exit 0
 
-      # RESTORE CACHES (WILL NOT WRITE ON WORKFLOW FINISH)
+      # RESTORE CACHES
       - name: Restore ThirdParty cache
         id: restore-third-party
         uses: actions/cache/restore@v5
         with:
-          path: ${{ env.TBUILD }}\ThirdParty
+          path: |
+            ${{ env.TBUILD }}\ThirdParty
+            ${{ env.TBUILD }}\Libraries\gas-preprocessor
           key: ${{ runner.OS }}-${{ runner.arch }}-third-party-${{ env.CACHE_KEY }}
           restore-keys: ${{ runner.OS }}-${{ runner.arch }}-third-party-
 
@@ -209,12 +211,7 @@ jobs:
         id: restore-libs
         uses: actions/cache/restore@v5
         with:
-          path: |
-            ${{ env.LibrariesPath }}\*
-            !${{ env.LibrariesPath }}\cache_keys
-            !${{ env.LibrariesPath }}\[qQ]t[_-]*
-            ${{ env.LibrariesPath }}\cache_keys\*
-            !${{ env.LibrariesPath }}\cache_keys\[qQ]t[_-]*
+          path: ${{ env.LibrariesPath }}
           key: ${{ runner.OS }}-${{ matrix.arch }}-libs-${{ env.CACHE_KEY }}
           restore-keys: ${{ runner.OS }}-${{ matrix.arch }}-libs-
 
@@ -237,24 +234,21 @@ jobs:
         shell: bash
         run: find $LibrariesPath '(' '(' ! '(' -name '*.lib' -o -name '*.a' -o -name '*.exe' -o -name '*.h' -o -name '*.hpp' -o -name '*.inc' -o -name '*.cmake' -o -path '*/include/*' -o -path '*/objects-*' -o -path '*/cache_keys/*' -o -path '*/patches/*' ')' -type f ')' -o -empty ')' -delete
 
-      # SAVE CACHES IMMEDIATELY BEFORE ATTEMPTING BUILD
+      # SAVE CACHES IMMEDIATELY
       - name: Save ThirdParty cache (Immediate)
         if: steps.restore-third-party.outputs.cache-hit != 'true'
         uses: actions/cache/save@v5
         with:
-          path: ${{ env.TBUILD }}\ThirdParty
+          path: |
+            ${{ env.TBUILD }}\ThirdParty
+            ${{ env.TBUILD }}\Libraries\gas-preprocessor
           key: ${{ runner.OS }}-${{ runner.arch }}-third-party-${{ env.CACHE_KEY }}
 
       - name: Save Libraries cache (Immediate)
         if: steps.restore-libs.outputs.cache-hit != 'true'
         uses: actions/cache/save@v5
         with:
-          path: |
-            ${{ env.LibrariesPath }}\*
-            !${{ env.LibrariesPath }}\cache_keys
-            !${{ env.LibrariesPath }}\[qQ]t[_-]*
-            ${{ env.LibrariesPath }}\cache_keys\*
-            !${{ env.LibrariesPath }}\cache_keys\[qQ]t[_-]*
+          path: ${{ env.LibrariesPath }}
           key: ${{ runner.OS }}-${{ matrix.arch }}-libs-${{ env.CACHE_KEY }}
 
       - name: Save Qt cache (Immediate)
@@ -281,7 +275,6 @@ jobs:
           C:
           cd %userprofile%\TBuild\%REPO_NAME%\Telegram
 
-          :: Wipe previous CMake cache to prevent configuration mismatch errors
           if exist "..\out\CMakeCache.txt" del /f /q "..\out\CMakeCache.txt"
           if exist "..\out\CMakeFiles" rmdir /s /q "..\out\CMakeFiles"
 
@@ -291,13 +284,12 @@ jobs:
           set "QT_ARG="
           if not "${{ matrix.qt }}"=="" set "QT_ARG=${{ matrix.qt }}"
 
-          :: Run configuration step with policy error overrides
           call configure.bat ^
           %GENERATOR_ARG% ^
           ${{ matrix.arch }} ^
           %QT_ARG% ^
           -D TDESKTOP_API_ID="${{ secrets.TELEGRAM_API_ID }}" ^
-          -D TDESKTOP_API_HASH="${{ secrets.TDESKTOP_API_HASH }}" ^
+          -D TDESKTOP_API_HASH="${{ secrets.TELEGRAM_API_HASH }}" ^
           -D CMAKE_CONFIGURATION_TYPES=Debug ^
           -D CMAKE_COMPILE_WARNING_AS_ERROR=OFF ^
           -D CMAKE_POLICY_DEFAULT_CMP0218=OLD ^
@@ -309,7 +301,6 @@ jobs:
             exit /b %ERRORLEVEL%
           )
 
-          :: Build project
           cmake --build ..\out --config Debug --parallel
 
       - name: Move artifact
